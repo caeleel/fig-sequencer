@@ -1,0 +1,7 @@
+{
+  "name": "FigSequencer",
+  "id": "771483791531506581",
+  "api": "1.1.0",
+  "main": "code.js",
+  "ui": "ui.html"
+}

@@ -1,0 +1,220 @@
+<head>
+<style>
+body {
+  font-family: 'Roboto';
+  margin: 16px;
+}
+
+.playback {
+  display: flex;
+}
+
+.buttons {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+button {
+  border: 1px solid black;
+  border-radius: 0;
+  margin: 0;
+  width: 30px;
+  text-align: center;
+  height: 20px;
+  outline: none;
+  display: inline-block;
+}
+
+button img {
+  height: 14px;
+}
+
+button:hover {
+  background-color: #e3e3e3;
+}
+
+button:active {
+  background-color: #d3d3d3;
+}
+
+#play {
+  border-radius: 3px 0 0 3px;
+  border-right: none;
+}
+
+#stop {
+  border-radius: 0 3px 3px 0;
+  border-left: none;
+}
+
+#new {
+  border-radius: 3px;
+  width: 100px;
+}
+
+.slideContainer {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.slider {
+  width: 150px;
+}
+
+.label {
+  width: 50px;
+}
+
+#pitch, #tempo {
+  margin-left: 10px;
+  width: 50px;
+  text-align: right;
+  border: 1px solid #111111;
+}
+
+</style>
+</head>
+
+<div class="buttons">
+  <div class="playback">
+    <button id="play" onclick="play()">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Octicons-playback-play.svg/32px-Octicons-playback-play.svg.png" />
+    </button>
+    <button id="pause" onclick="stop(true)">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Octicons-playback-pause.svg/32px-Octicons-playback-pause.svg.png" />
+    </button>
+    <button id="stop" onclick="stop(false)">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Octicons-primitive-square.svg/32px-Octicons-primitive-square.svg.png" />
+    </button>
+  </div>
+  <button id="new" onclick="createSheet()">New Sheet</button>
+</div>
+<div class="slideContainer">
+  <span class="label">Tempo</span><input type="range" min="256" max="1024" value="512" class="slider" id="tempoSlider"><input id="tempo" value="512"></input>
+</div>
+<div class="slideContainer">
+  <span class="label">Pitch</span><input type="range" min="-12" max="24" value="12" class="slider" id="pitchSlider"><input id="pitch" value="12"></input>
+</div>
+
+<script>
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+let tempo = null
+let oscillators = new Set()
+let timeOrigin = 0
+let timeToAdd = 0
+const halfStep = Math.pow(2, 1/12)
+let freqBase = 880
+const stopDecay = 0.015
+
+const tempoSlider = document.getElementById('tempoSlider')
+const tempoInput = document.getElementById('tempo')
+const pitchSlider = document.getElementById('pitchSlider')
+const pitchInput = document.getElementById('pitch')
+
+tempoSlider.oninput = function() {
+  parent.postMessage({ pluginMessage: { tempo: this.value }}, '*')
+  tempoInput.value = this.value
+}
+
+tempoInput.oninput = function() {
+  if (this.value < 256 || this.value > 1024) return
+  parent.postMessage({ pluginMessage: { tempo: this.value }}, '*')
+  tempoSlider.value = this.value
+}
+
+pitchSlider.oninput = function() {
+  freqBase = 440 * Math.pow(2, this.value / 12)
+  pitchInput.value = this.value
+}
+
+pitchInput.oninput = function() {
+  if (this.value < -12 || this.value > 24) return
+  freqBase = 440 * Math.pow(2, this.value / 12)
+  pitchSlider.value = this.value
+}
+
+function createSheet() {
+  parent.postMessage({ pluginMessage: { createSheet: true }}, '*')
+}
+
+function play() {
+  timeOrigin = 0
+  stop(false)
+  parent.postMessage({ pluginMessage: { play: true }}, '*')
+}
+
+function stop(pause) {
+  for (const oscillator of Array.from(oscillators)) {
+    oscillator.oscillator.stop()
+  }
+  oscillators = new Set()
+
+  if (pause) {
+    parent.postMessage({ pluginMessage: { pause: true }}, '*')
+  } else {
+    parent.postMessage({ pluginMessage: { stop: true }}, '*')
+  }
+}
+
+function handleCommand(event) {
+  const node = event.data.pluginMessage
+
+  if (node.frameStart) {
+    if (timeOrigin === 0) {
+      timeOffset = (Date.now() - node.timeOrigin) / 1000.0
+      timeOrigin = audioCtx.currentTime - timeOffset
+    } else {
+      timeOrigin += timeToAdd
+    }
+    tempo = node.tempo
+    timeToAdd = node.frameWidth / tempo
+    return
+  }
+
+  const oscillator = audioCtx.createOscillator()
+  const gain = audioCtx.createGain();
+  const startOffset = 10.5 - (node.y / 16)
+  const endOffset = startOffset - (node.dy / 16)
+  const startFreq = freqBase * Math.pow(halfStep, startOffset)
+  const endFreq = freqBase * Math.pow(halfStep, endOffset)
+  const startTime = Math.max(timeOrigin + node.x / tempo, 0)
+  const endTime = Math.min(startTime + node.dx / tempo, timeOrigin + timeToAdd)
+  const duration = endTime - startTime
+  let lastVal = node.opacity;
+
+  if (node.fills.length === 0 || (node.fills[0].type !== "SOLID" && node.fills[0].type !== "GRADIENT_LINEAR")) {
+    gain.gain.value = node.opacity
+  } else if (node.fills[0].type === "SOLID") {
+    lastVal = node.opacity * node.fills[0].opacity
+    gain.gain.value = lastVal
+  } else {
+    stops = node.fills[0].gradientStops
+    gain.gain.setValueAtTime(stops[0].color.a * node.opacity, startTime)
+    for (const stop of stops) {
+      lastVal = stop.color.a * node.opacity
+      gain.gain.linearRampToValueAtTime(lastVal, startTime + duration * stop.position)
+    }
+  }
+  gain.gain.setValueAtTime(lastVal, endTime)
+  gain.gain.linearRampToValueAtTime(0, endTime + stopDecay);
+
+  oscillator.type = 'triangle'
+  oscillator.frequency.setValueAtTime(startFreq, startTime)
+  oscillator.frequency.exponentialRampToValueAtTime(endFreq, endTime)
+  oscillator.start(startTime)
+  oscillator.stop(endTime + stopDecay)
+  oscillator.connect(gain)
+  gain.connect(audioCtx.destination)
+  
+  const record = { oscillator, gain }
+  oscillators.add(record)
+}
+
+window.addEventListener("message", handleCommand, false)
+
+</script>
