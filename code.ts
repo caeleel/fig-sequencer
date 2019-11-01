@@ -8,6 +8,7 @@ let isPaused = false
 let generation = 0
 let oldTimeOrigin = null
 let timeOrigin = Date.now()
+let timeBar: RectangleNode | null = null
 
 // Global state used to stop playback
 
@@ -59,6 +60,8 @@ function stopPlayback(pause: boolean) {
   if (!pause) {
     generation += 1
     playingFrame = null
+    if (timeBar) timeBar.remove()
+    timeBar = null
   }
 
   isPaused = pause
@@ -105,13 +108,16 @@ function createSheet() {
 }
 
 function renderBar(frame: FrameNode) {
-  let timeBar: RectangleNode | null = null
   const frameTempo = tempo
   const myTimeOrigin = oldTimeOrigin
   const myGeneration = generation
   let xOffset = Math.floor(frameTempo * (Date.now() - myTimeOrigin) / (1000 * 16)) * 16
 
   function renderBarInner() {
+    if (timeBar && timeBar.parent !== playingFrame) {
+      timeBar.remove()
+      timeBar = null
+    }
     if (timeBar === null || timeBar.removed) {
       const rect = figma.createRectangle()
       rect.resize(gridSize, frame.height)
@@ -163,7 +169,7 @@ function calcBounds(node: RectangleNode | TextNode, xOffset, yOffset) {
 function playFrame(frame, xOffset, yOffset) {
   const timeOffset = oldTimeOrigin - Date.now()
   frame.children.forEach((child: SceneNode) => {
-    if (child.name === 'Time Bar') {
+    if (!isPaused && child.name === 'Time Bar') {
       child.remove()
       return
     }
@@ -196,16 +202,6 @@ function playNextFrame() {
   for (const node of figma.currentPage.children) {
     if (node.type === "FRAME" && node.opacity === 1 && node.visible) {
       nodes.push(node)
-
-      if (!isPaused || playingFrame) continue
-
-      for (const child of node.children) {
-        if (child.name === 'Time Bar') {
-          playingFrame = node
-          timeOrigin -= child.x * 1000 / tempo
-          break
-        }
-      }
     }
   }
 
@@ -216,8 +212,9 @@ function playNextFrame() {
     return a.x - b.x
   })
 
+  if (isPaused) playingFrame = timeBar && !timeBar.removed ? (timeBar.parent && timeBar.parent.type === 'FRAME' ?  timeBar.parent : null) : null
   if (playingFrame && isPaused) {
-    // playingFrame is already set correctly
+    timeOrigin -= timeBar.x * 1000 / tempo
   } else if (playingFrame) {
     let idx = 0
     for (let i=0; i<nodes.length; i++) {
@@ -250,7 +247,7 @@ figma.ui.onmessage = (message) => {
     tempo = message.tempo
   }
   if (message.stop) {
-    if (isPaused) return
+    if (isPaused && !message.force) return
     stopPlayback(false)
   }
   if (message.play) {

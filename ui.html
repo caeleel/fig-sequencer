@@ -84,10 +84,10 @@ button:active {
     <button id="play" onclick="play()">
       <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Octicons-playback-play.svg/32px-Octicons-playback-play.svg.png" />
     </button>
-    <button id="pause" onclick="stop(true)">
+    <button id="pause" onclick="stop(true, true)">
       <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Octicons-playback-pause.svg/32px-Octicons-playback-pause.svg.png" />
     </button>
-    <button id="stop" onclick="stop(false)">
+    <button id="stop" onclick="stop(false, true)">
       <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Octicons-primitive-square.svg/32px-Octicons-primitive-square.svg.png" />
     </button>
   </div>
@@ -144,11 +144,11 @@ function createSheet() {
 
 function play() {
   timeOrigin = 0
-  stop(false)
+  stop(false, false)
   parent.postMessage({ pluginMessage: { play: true }}, '*')
 }
 
-function stop(pause) {
+function stop(pause, force) {
   for (const oscillator of Array.from(oscillators)) {
     oscillator.oscillator.stop()
   }
@@ -157,7 +157,7 @@ function stop(pause) {
   if (pause) {
     parent.postMessage({ pluginMessage: { pause: true }}, '*')
   } else {
-    parent.postMessage({ pluginMessage: { stop: true }}, '*')
+    parent.postMessage({ pluginMessage: { stop: true, force }}, '*')
   }
 }
 

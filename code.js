@@ -6,6 +6,7 @@ let isPaused = false;
 let generation = 0;
 let oldTimeOrigin = null;
 let timeOrigin = Date.now();
+let timeBar = null;
 // Global state used to stop playback
 let fillMap = {};
 let pendingTimers = [];
@@ -51,6 +52,9 @@ function stopPlayback(pause) {
     if (!pause) {
         generation += 1;
         playingFrame = null;
+        if (timeBar)
+            timeBar.remove();
+        timeBar = null;
     }
     isPaused = pause;
     for (const timer of pendingTimers) {
@@ -90,12 +94,15 @@ function createSheet() {
     group.opacity = 0.05;
 }
 function renderBar(frame) {
-    let timeBar = null;
     const frameTempo = tempo;
     const myTimeOrigin = oldTimeOrigin;
     const myGeneration = generation;
     let xOffset = Math.floor(frameTempo * (Date.now() - myTimeOrigin) / (1000 * 16)) * 16;
     function renderBarInner() {
+        if (timeBar && timeBar.parent !== playingFrame) {
+            timeBar.remove();
+            timeBar = null;
+        }
         if (timeBar === null || timeBar.removed) {
             const rect = figma.createRectangle();
             rect.resize(gridSize, frame.height);
@@ -143,7 +150,7 @@ function calcBounds(node, xOffset, yOffset) {
 function playFrame(frame, xOffset, yOffset) {
     const timeOffset = oldTimeOrigin - Date.now();
     frame.children.forEach((child) => {
-        if (child.name === 'Time Bar') {
+        if (!isPaused && child.name === 'Time Bar') {
             child.remove();
             return;
         }
@@ -177,15 +184,6 @@ function playNextFrame() {
     for (const node of figma.currentPage.children) {
         if (node.type === "FRAME" && node.opacity === 1 && node.visible) {
             nodes.push(node);
-            if (!isPaused || playingFrame)
-                continue;
-            for (const child of node.children) {
-                if (child.name === 'Time Bar') {
-                    playingFrame = node;
-                    timeOrigin -= child.x * 1000 / tempo;
-                    break;
-                }
-            }
         }
     }
     if (nodes.length === 0)
@@ -195,8 +193,10 @@ function playNextFrame() {
             return a.y - b.y;
         return a.x - b.x;
     });
+    if (isPaused)
+        playingFrame = timeBar && !timeBar.removed ? (timeBar.parent && timeBar.parent.type === 'FRAME' ? timeBar.parent : null) : null;
     if (playingFrame && isPaused) {
-        // playingFrame is already set correctly
+        timeOrigin -= timeBar.x * 1000 / tempo;
     }
     else if (playingFrame) {
         let idx = 0;
@@ -227,7 +227,7 @@ figma.ui.onmessage = (message) => {
         tempo = message.tempo;
     }
     if (message.stop) {
-        if (isPaused)
+        if (isPaused && !message.force)
             return;
         stopPlayback(false);
     }
